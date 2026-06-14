@@ -1,0 +1,11 @@
+{
+  "name": "uno-sizo-sinalo",
+  "version": "2.0.0",
+  "description": "UNO · Sizo vs Sinalo",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}

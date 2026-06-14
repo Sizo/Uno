@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: uno-sizo-sinalo
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
