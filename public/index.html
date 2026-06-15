@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0B1120">
+  <title>UNO · Sizo vs Sinalo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── PICK WHO YOU ARE ────────────────────────────────────────────────── -->
+  <div id="screen-pick" class="screen lobby active">
+    <div class="lobby-bg"></div>
+    <div class="lobby-wrap">
+      <div class="logo-hero">
+        <h1 class="uno-logo">UNO</h1>
+        <p class="vs-line">Sizo <em>vs</em> Sinalo</p>
+      </div>
+      <div id="pick-players" class="glass-panel">
+        <p class="pick-label">Who are you?</p>
+        <div class="player-btns">
+          <button class="player-btn sizo"   onclick="pickPlayer('Sizo')">
+            <span class="p-emoji">🔵</span>Sizo
+          </button>
+          <button class="player-btn sinalo" onclick="pickPlayer('Sinalo')">
+            <span class="p-emoji">💗</span>Sinalo
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RULES (creator only) ────────────────────────────────────────────── -->
+  <div id="screen-rules" class="screen lobby hidden">
+    <div class="lobby-bg"></div>
+    <div class="lobby-wrap">
+      <div class="logo-mini">
+        <h1 class="uno-logo small">UNO</h1>
+        <p class="picked-as" id="picked-as-label"></p>
+      </div>
+
+      <div class="rules-block glass-panel">
+        <div class="rules-head-row">
+          <div class="rules-section-hd">Rules</div>
+          <button class="mini-toggle" onclick="setAllRules(true)">All On</button>
+          <button class="mini-toggle ghost" onclick="setAllRules(false)">All Off</button>
+        </div>
+        <div class="rules-grid" id="grid-rules"></div>
+      </div>
+
+      <div class="rules-block glass-panel">
+        <div class="rules-section-hd">Special Cards</div>
+        <div class="rules-grid" id="grid-special"></div>
+      </div>
+
+      <button class="btn-green" onclick="createRoom()">🎮 Create Game</button>
+    </div>
+  </div>
+
+  <!-- ── WAITING ──────────────────────────────────────────────────────────── -->
+  <div id="screen-waiting" class="screen lobby hidden">
+    <div class="lobby-bg"></div>
+    <div class="center-card glass-panel">
+      <div class="spinner"></div>
+      <h2>Waiting for your opponent…</h2>
+      <p class="muted">Share this link 👇</p>
+      <div class="url-box" id="url-box">—</div>
+      <button class="btn-copy" onclick="copyUrl()">📋 Copy Link</button>
+      <div class="copy-toast hidden" id="copy-toast">✅ Copied!</div>
+    </div>
+  </div>
+
+  <!-- ── JOIN (joiner sees this) ──────────────────────────────────────────── -->
+  <div id="screen-join" class="screen lobby hidden">
+    <div class="lobby-bg"></div>
+    <div class="center-card glass-panel">
+      <h1 class="uno-logo">UNO</h1>
+      <div id="join-content">
+        <div class="spinner"></div>
+        <p style="margin-top:14px">Loading room…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── GAME ─────────────────────────────────────────────────────────────── -->
+  <div id="screen-game" class="screen hidden">
+    <div class="game-layout">
+
+      <!-- Opponent -->
+      <div class="player-strip opp-strip" id="opp-strip">
+        <div class="ptag">
+          <span class="pdot" id="opp-dot"></span>
+          <span class="pname" id="opp-name">Opponent</span>
+          <span class="pcount" id="opp-count">7</span>
+          <div class="turn-ring hidden" id="opp-ring"><svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="opp-ring-fg" cx="20" cy="20" r="17"/></svg><span class="ring-num" id="opp-ring-num"></span></div>
+        </div>
+        <div class="hand-row" id="opp-hand"></div>
+      </div>
+
+      <!-- Play area -->
+      <div class="play-area" id="play-area">
+        <div class="piles-row">
+          <!-- Draw pile -->
+          <div class="pile-wrap" id="draw-wrap">
+            <div class="draw-stack" onclick="onDrawClick()">
+              <div class="stack-shadow s3"></div>
+              <div class="stack-shadow s2"></div>
+              <div class="stack-shadow s1"></div>
+              <div class="card card-back" id="draw-pile">
+                <div class="back-inner"><div class="back-oval"><span class="back-uno">UNO</span></div></div>
+              </div>
+            </div>
+            <div class="deck-badge" id="deck-count">104</div>
+            <span class="pile-lbl">Draw</span>
+          </div>
+
+          <!-- Direction indicator -->
+          <div class="dir-wrap">
+            <div class="dir-arrow" id="dir-badge">↻</div>
+          </div>
+
+          <!-- Discard pile -->
+          <div class="pile-wrap">
+            <div class="card" id="top-card"></div>
+            <span class="pile-lbl">Discard</span>
+          </div>
+        </div>
+
+        <div class="status-bar" id="status-bar">–</div>
+
+        <div class="play-actions">
+          <button class="uno-shout hidden" id="uno-btn">UNO!</button>
+        </div>
+
+        <!-- Floating controls -->
+        <button class="icon-btn lb-btn" onclick="toggleLb()" title="Leaderboard">🏆</button>
+        <button class="icon-btn sound-btn" id="sound-btn" onclick="toggleSound()" title="Sound">🔊</button>
+        <button class="icon-btn react-btn" onclick="toggleReactBar()" title="React">😀</button>
+
+        <div class="react-bar hidden" id="react-bar">
+          <button onclick="sendReaction('😀')">😀</button>
+          <button onclick="sendReaction('😂')">😂</button>
+          <button onclick="sendReaction('😮')">😮</button>
+          <button onclick="sendReaction('😎')">😎</button>
+          <button onclick="sendReaction('😡')">😡</button>
+          <button onclick="sendReaction('🔥')">🔥</button>
+          <button onclick="sendReaction('👏')">👏</button>
+          <button onclick="sendReaction('🤣')">🤣</button>
+        </div>
+
+        <div class="reaction-stage" id="reaction-stage"></div>
+      </div>
+
+      <!-- My hand -->
+      <div class="player-strip my-strip" id="my-strip">
+        <div class="ptag">
+          <span class="pdot" id="my-dot"></span>
+          <span class="pname" id="my-name">You</span>
+          <span class="pcount" id="my-count">7</span>
+          <div class="turn-ring hidden" id="my-ring"><svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="my-ring-fg" cx="20" cy="20" r="17"/></svg><span class="ring-num" id="my-ring-num"></span></div>
+        </div>
+        <div class="hand-row scrollable" id="my-hand"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── MODAL: Open Draft ─────────────────────────────────────────────────── -->
+  <div id="modal-draft" class="modal hidden">
+    <div class="modal-box">
+      <h3>You drew:</h3>
+      <div id="draft-card-wrap" style="margin:8px 0"></div>
+      <p class="muted" id="draft-hint">Tap to play or keep</p>
+      <div class="modal-btns">
+        <button class="btn-secondary" id="draft-keep-btn" onclick="draftDecide(false)">Keep It</button>
+        <button class="btn-green"     id="draft-play-btn" onclick="draftDecide(true)">Play It</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Color Picker ──────────────────────────────────────────────── -->
+  <div id="modal-color" class="modal hidden">
+    <div class="modal-box">
+      <h3>Pick a Color</h3>
+      <div class="color-grid">
+        <button class="col-btn red"    onclick="pickColor('red')">Red</button>
+        <button class="col-btn blue"   onclick="pickColor('blue')">Blue</button>
+        <button class="col-btn green"  onclick="pickColor('green')">Green</button>
+        <button class="col-btn yellow" onclick="pickColor('yellow')">Yellow</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Color Challenge ───────────────────────────────────────────── -->
+  <div id="modal-challenge" class="modal hidden">
+    <div class="modal-box">
+      <h3>⚔️ Wild +4 Played!</h3>
+      <p style="font-size:15px">Do you think it was a bluff?</p>
+      <p class="muted" style="font-size:13px">Bluff caught → they draw 4 · Failed challenge → you draw 6</p>
+      <div class="modal-btns">
+        <button class="btn-secondary" onclick="declineChallenge()">Accept (+4)</button>
+        <button class="btn-green"     onclick="sendChallenge()">Challenge!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Winner ─────────────────────────────────────────────────────── -->
+  <div id="modal-winner" class="modal hidden">
+    <div class="modal-box winner-box">
+      <div class="confetti-stage" id="confetti-stage"></div>
+      <h2 class="winner-title" id="winner-title">🎉 You Win!</h2>
+      <div class="reveal-hand" id="reveal-hand"></div>
+      <div class="lb-mini" id="lb-mini-wrap"></div>
+      <button class="btn-green"      onclick="voteRematch()">Play Again</button>
+      <p class="muted" id="rematch-status" style="font-size:13px"></p>
+    </div>
+  </div>
+
+  <!-- ── REVEAL OVERLAY (shows loser hand 3s before winner modal) ─────────── -->
+  <div id="reveal-overlay" class="reveal-overlay hidden">
+    <div class="reveal-box">
+      <p class="reveal-title" id="reveal-title">Sizo's hand</p>
+      <div class="reveal-cards" id="reveal-cards"></div>
+    </div>
+  </div>
+
+  <!-- ── LEADERBOARD PANEL ─────────────────────────────────────────────────── -->
+  <div id="lb-panel" class="lb-panel hidden">
+    <div class="lb-box">
+      <button class="lb-close" onclick="toggleLb()">✕</button>
+      <h2 class="lb-title">🏆 Leaderboard</h2>
+      <div id="lb-content"></div>
+    </div>
+  </div>
+
+  <!-- ── ROTATE HINT (portrait) ────────────────────────────────────────────── -->
+  <div id="rotate-hint" class="rotate-hint hidden">
+    <div class="rotate-icon">📱</div>
+    <p>Rotate your device<br>for the best experience</p>
+    <button class="btn-copy" onclick="dismissRotate()">Play anyway</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
