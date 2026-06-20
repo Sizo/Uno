@@ -35,15 +35,15 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: -1;
+  /* A dark overlay keeps text readable over the photo backdrop. */
   background:
-    radial-gradient(1200px 600px at 70% -10%, rgba(216,27,96,.28), transparent 60%),
-    radial-gradient(1000px 700px at 10% 110%, rgba(21,101,192,.30), transparent 55%),
-    linear-gradient(160deg, #0B1120 0%, #131c38 50%, #0B1120 100%);
+    linear-gradient(rgba(11,17,32,.40), rgba(11,17,32,.62)),
+    url('bg.jpg');
   background-size: cover;
   background-position: center;
 }
-/* If you drop a background photo in /public, reference it here:
-   .lobby-bg { background-image: url('your-image.jpeg'); } */
+/* To use your OWN photo instead: drop it in /public and change the url above,
+   e.g.  url('my-photo.jpg')  — keep the dark gradient layer for legibility. */
 
 /* ── Screens ─────────────────────────────────────────────────────────────── */
 .screen {
@@ -275,8 +275,14 @@ html, body {
 .uno-shout {
   background: linear-gradient(135deg, #E53935, #B71C1C); color: #fff;
   font-family: 'Fredoka One', cursive; font-size: 22px; padding: 11px 32px;
-  border-radius: 50px; border: none; cursor: pointer;
-  box-shadow: 0 6px 20px rgba(229,57,53,.5); animation: throb 1s ease infinite;
+  border-radius: 50px; border: 3px solid #fff; cursor: pointer;
+  box-shadow: 0 6px 22px rgba(229,57,53,.6); animation: throb 1s ease infinite;
+}
+.catch-btn {
+  background: linear-gradient(135deg, #FB8C00, #E65100); color: #fff;
+  font-family: 'Fredoka One', cursive; font-size: 19px; padding: 10px 26px;
+  border-radius: 50px; border: 3px solid #fff; cursor: pointer;
+  box-shadow: 0 6px 22px rgba(251,140,0,.6); animation: throb 1s ease infinite;
 }
 @keyframes throb { 0%,100% { transform: scale(1); } 50% { transform: scale(1.07); } }
 
@@ -475,9 +481,17 @@ html, body {
 /* ── Confetti ────────────────────────────────────────────────────────────── */
 @keyframes cf-fall { to { transform: translateY(110vh) rotate(720deg); opacity: 0; } }
 
-/* ── Deal animation ──────────────────────────────────────────────────────── */
-@keyframes deal { from { opacity: 0; transform: scale(.6) rotate(-10deg) translateY(16px); } to { opacity: 1; transform: scale(1) rotate(0) translateY(0); } }
-.hand-row .card { animation: deal .25s ease both; }
+/* ── Deal / fly animations ───────────────────────────────────────────────── */
+/* Flying card ghost (hand → discard, deck → hand) */
+.fly-ghost {
+  position: fixed;
+  z-index: 600;
+  margin: 0 !important;
+  pointer-events: none;
+  animation: none !important;
+  transition: transform .42s cubic-bezier(.34,.9,.4,1), opacity .42s;
+  will-change: transform;
+}
 
 @keyframes shake { 0%,100% { transform: translateX(0); } 30% { transform: translateX(-7px); } 70% { transform: translateX(7px); } }
 .shake { animation: shake .3s ease; }

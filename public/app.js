@@ -15,6 +15,7 @@ let soundOn      = true;
 let timerRAF     = null;
 let prevMyCount  = 7;
 let revealTimer  = null;
+let pendingPlay  = null;   // {card, rect} captured when I tap a card, for the fly animation
 
 // All rules — Jump-In added; every rule ON by default
 const RULES = [
@@ -22,7 +23,6 @@ const RULES = [
   { id: 'sevenZero',      label: '0-7',            desc: '7 & 0 swap hands',             icon: '🔄', group: 'r' },
   { id: 'forcedPlay',     label: 'Forced Play',    desc: 'Must play drawn card if valid',icon: '⚡', group: 'r' },
   { id: 'openDraft',      label: 'Open Draft',     desc: 'Preview drawn card first',     icon: '👁️', group: 'r' },
-  { id: 'sideToSide',     label: 'Side 2 Side',    desc: "See opponent's hand",          icon: '👥', group: 'r' },
   { id: 'jumpIn',         label: 'Jump In',        desc: 'Play identical card any time', icon: '🏃', group: 'r' },
   { id: 'discardAll',     label: 'Discard All',    desc: 'Auto-discard same value',      icon: '🗑️', group: 's' },
   { id: 'doubleDiscard',  label: 'Dbl Discard',    desc: 'Also discard same color',      icon: '✖️', group: 's' },
@@ -307,12 +307,26 @@ function render(state, prev) {
 
   if (!state.challengePending || state.winner) hideModal('modal-challenge');
 
-  // UNO button
-  $('uno-btn').classList.toggle('hidden', !(state.myHand.length === 1 && state.isMyTurn));
-  if (state.myHand.length === 1 && state.isMyTurn && prev && prev.myHand.length !== 1) sfx.uno();
+  // UNO call / catch buttons
+  const unoNeeded = state.winner ? null : state.unoCallNeeded;
+  $('uno-btn').classList.toggle('hidden', unoNeeded !== myName);
+  $('catch-btn').classList.toggle('hidden', !(unoNeeded && unoNeeded === opp));
+  // Prompt sound the moment I drop to one card and owe a UNO call
+  if (unoNeeded === myName && (!prev || prev.unoCallNeeded !== myName)) sfx.uno();
 
   // Turn timer ring
   updateTimerRing(state);
+
+  // Fly-to-pile animation for any NEW action (play, draw, catch)
+  if (prev && state.actionSeq !== prev.actionSeq && state.lastAction) {
+    animateAction(state.lastAction, state);
+  }
+  // Toasts for UNO events
+  if (prev && state.actionSeq !== prev.actionSeq && state.lastAction) {
+    const a = state.lastAction;
+    if (a.type === 'uno')    showToast(`📢 ${a.player} called UNO!`);
+    if (a.type === 'caught') showToast(a.victim === myName ? '⚡ Caught! +2 cards' : `⚡ You caught ${a.victim}! +2`);
+  }
 
   // Win flow — reveal then modal
   if (state.winner && (!prev || !prev.winner)) handleWin(state);
@@ -351,18 +365,14 @@ function renderMyHand(state, prev) {
   const row = $('my-hand');
   row.innerHTML = '';
   const active = state.isMyTurn && !state.winner && !state.draft && !state.challengePending;
-  const drew   = state.myHand.length > prevMyCount;
 
   state.myHand.forEach((card, i) => {
     const playable = active && canPlayCard(card, state);
     const dimmed   = active && !playable;
     const el       = buildCard(card, playable, dimmed);
 
-    // flash newly drawn cards (the tail of the hand)
-    if (drew && i >= prevMyCount) el.classList.add('just-drawn');
-
     if (playable) {
-      el.onclick = () => onCardClick(card, i, state);
+      el.onclick = () => { pendingPlay = { card, rect: el.getBoundingClientRect() }; onCardClick(card, i, state); };
     } else if (state.rules.jumpIn && !state.winner && !state.isMyTurn) {
       const t = state.topCard;
       const tc = t.chosenColor || t.color;
@@ -370,12 +380,11 @@ function renderMyHand(state, prev) {
         el.classList.remove('dimmed');
         el.classList.add('playable');
         el.title = 'Jump In!';
-        el.onclick = () => { socket.emit('jumpIn', { cardIdx: i }); sfx.play(); };
+        el.onclick = () => { pendingPlay = { card, rect: el.getBoundingClientRect() }; socket.emit('jumpIn', { cardIdx: i }); };
       }
     }
     row.appendChild(el);
   });
-  if (drew) sfx.draw();
   prevMyCount = state.myHand.length;
 }
 
@@ -423,7 +432,6 @@ function onCardClick(card, cardIdx, state) {
     showModal('modal-color');
   } else {
     socket.emit('playCard', { cardIdx, chosenColor: null });
-    sfx.play();
   }
 }
 function onDrawClick() {
@@ -436,7 +444,6 @@ function pickColor(color) {
   hideModal('modal-color');
   if (draftIsWild) { socket.emit('draftDecide', { play: true, chosenColor: color }); draftIsWild = false; }
   else if (pendingWildIdx !== null) { socket.emit('playCard', { cardIdx: pendingWildIdx, chosenColor: color }); pendingWildIdx = null; }
-  sfx.play();
 }
 
 // ── Draft ───────────────────────────────────────────────────────────────────
@@ -536,8 +543,56 @@ function floatEmoji(emoji) {
   setTimeout(() => e.remove(), 2300);
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────────
-let toastTimer;
+// ── Fly-to-pile animations ──────────────────────────────────────────────────
+function flyCard(card, from, to, faceUp) {
+  const ghost = (faceUp && card) ? buildCard(card, false, false) : buildBack(false);
+  ghost.classList.add('fly-ghost');
+  ghost.style.left   = from.left + 'px';
+  ghost.style.top    = from.top + 'px';
+  ghost.style.width  = from.width + 'px';
+  ghost.style.height = from.height + 'px';
+  document.body.appendChild(ghost);
+  const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+  const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+  const sc = to.width / from.width;
+  requestAnimationFrame(() => {
+    ghost.style.transform = `translate(${dx}px, ${dy}px) scale(${sc})`;
+  });
+  setTimeout(() => ghost.remove(), 440);
+}
+
+function animateAction(a, state) {
+  const drawR = $('draw-pile').getBoundingClientRect();
+  const topR  = $('top-card').getBoundingClientRect();
+  const myR   = $('my-hand').getBoundingClientRect();
+  const oppR  = $('opp-hand').getBoundingClientRect();
+  if (!drawR.width || !topR.width) return; // game not laid out yet
+  const cw = drawR.width, ch = drawR.height;
+  const box  = r => ({ left: r.left, top: r.top, width: r.width, height: r.height });
+  const ctr  = r => ({ left: r.left + r.width / 2 - cw / 2, top: r.top + r.height / 2 - ch / 2, width: cw, height: ch });
+
+  if (a.type === 'play' || a.type === 'jumpin') {
+    let from;
+    if (a.player === myName && pendingPlay) from = pendingPlay.rect;
+    else if (a.player === myName)           from = ctr(myR);
+    else                                    from = ctr(oppR);
+    flyCard(a.card, from, box(topR), true);
+    pendingPlay = null;
+  } else if (a.type === 'draw') {
+    const n   = Math.min(a.count || 1, 4);
+    const dst = a.player === myName ? ctr(myR) : ctr(oppR);
+    for (let i = 0; i < n; i++) setTimeout(() => flyCard(null, box(drawR), dst, false), i * 90);
+  } else if (a.type === 'caught') {
+    const dst = a.victim === myName ? ctr(myR) : ctr(oppR);
+    for (let i = 0; i < 2; i++) setTimeout(() => flyCard(null, box(drawR), dst, false), i * 130);
+  }
+}
+
+// ── UNO call / catch ─────────────────────────────────────────────────────────
+function callUno()  { socket.emit('callUno'); sfx.uno(); }
+function catchUno() { socket.emit('catchUno'); }
+
+
 function showToast(msg) {
   clearTimeout(toastTimer);
   const bar = $('status-bar');

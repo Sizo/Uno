@@ -122,6 +122,8 @@ function initGame(players, rules) {
     timers:           {},
     turnEndsAt:       null,
     lastAction:       null,
+    actionSeq:        0,
+    unoCallNeeded:    null,
     rematchVotes:     [],
   };
 }
@@ -194,10 +196,11 @@ function clientView(s, name) {
     turnEndsAt:        s.turnEndsAt,
     turnMs:            TURN_MS,
     lastAction:        s.lastAction,
+    actionSeq:         s.actionSeq,
+    unoCallNeeded:     s.unoCallNeeded,
   };
-  // Reveal opponent hand at game end, or with Side 2 Side rule
-  if (s.winner && opp)                view.opponentHand = s.hands[opp];
-  else if (s.rules.sideToSide && opp) view.opponentHand = s.hands[opp];
+  // Opponent hand is revealed ONLY when the game is over (the 3-second reveal).
+  if (s.winner && opp) view.opponentHand = s.hands[opp];
   return view;
 }
 
@@ -239,8 +242,15 @@ function doSwap(room, name) {
   if (opp) {
     [s.hands[name], s.hands[opp]] = [s.hands[opp], s.hands[name]];
     io.to(room.id).emit('swapped');
+    // Hands changed — reset and re-derive who must call UNO
+    s.unoCallNeeded = null;
+    [name, opp].forEach(p => { if (s.hands[p].length === 1) s.unoCallNeeded = p; });
   }
 }
+
+// Record the most recent action and bump a sequence counter so clients can
+// detect a NEW action (drives the fly-to-pile animations).
+function setAction(s, a) { s.lastAction = a; s.actionSeq = (s.actionSeq || 0) + 1; }
 
 // Apply the turn effect of a card that's already on the discard pile, then advance
 function applyCardEffect(room, name, card) {
@@ -273,16 +283,19 @@ function applyCardEffect(room, name, card) {
   startTimer(room);
 }
 
-// Card already removed from hand → push to discard and resolve everything
-function finishPlay(room, name, card) {
+// Card already removed from hand → push to discard and resolve everything.
+// autoUno=true (timed-out auto-plays) auto-calls UNO so the bot isn't penalised.
+function finishPlay(room, name, card, autoUno = false) {
   const s = room.state;
   if (card.value === 'wild4' && s.rules.colorChallenge) {
     s.challengeData = { prevColor: effColor(topCard(s)), snap: [...s.hands[name]] };
   }
   s.discard.push(card);
   discardExtras(s, card, name);
-  s.lastAction = { type: 'play', player: name, card };
+  s.unoCallNeeded = null; // prior obligation resolves: actor is playing, opponent's catch window has passed
+  setAction(s, { type: 'play', player: name, card });
   if (s.hands[name].length === 0) return endGame(room, name);
+  if (s.hands[name].length === 1) s.unoCallNeeded = autoUno ? null : name; // must call UNO!
   applyCardEffect(room, name, card);
 }
 
@@ -298,7 +311,8 @@ function autoPlay(room) {
     s.pendingDraw = 0;
     s.challengePending = false;
     s.challengeData = null;
-    s.lastAction = { type: 'timeout', player: name };
+    s.unoCallNeeded = null;
+    setAction(s, { type: 'draw', player: name, count: 4 });
     advance(s);
     broadcast(room);
     return startTimer(room);
@@ -310,10 +324,11 @@ function autoPlay(room) {
     const playable = canPlay(card, topCard(s), 0, s.rules);
     if (s.rules.forcedPlay && playable) {
       if (card.color === 'wild') card.chosenColor = bestColor(hand);
-      return finishPlay(room, name, card);
+      return finishPlay(room, name, card, true);
     }
     hand.push(card);
-    s.lastAction = { type: 'timeout', player: name };
+    s.unoCallNeeded = null;
+    setAction(s, { type: 'draw', player: name, count: 1 });
     advance(s);
     broadcast(room);
     return startTimer(room);
@@ -326,14 +341,14 @@ function autoPlay(room) {
   if (idx >= 0) {
     const card = hand.splice(idx, 1)[0];
     if (card.color === 'wild') card.chosenColor = bestColor(hand);
-    s.lastAction = { type: 'timeout', player: name };
-    return finishPlay(room, name, card);
+    return finishPlay(room, name, card, true);
   }
 
   const n = s.pendingDraw > 0 ? s.pendingDraw : 1;
   s.pendingDraw = 0;
   deal(s, name, n);
-  s.lastAction = { type: 'timeout', player: name };
+  s.unoCallNeeded = null;
+  setAction(s, { type: 'draw', player: name, count: n });
   advance(s);
   broadcast(room);
   startTimer(room);
@@ -426,7 +441,8 @@ io.on('connection', sock => {
     }
 
     deal(s, sock.data.playerName, n);
-    s.lastAction = { type: 'draw', player: sock.data.playerName, count: n };
+    s.unoCallNeeded = null; // catch window passed / drawer no longer at one card
+    setAction(s, { type: 'draw', player: sock.data.playerName, count: n });
     advance(s);
     broadcast(room);
     startTimer(room);
@@ -448,7 +464,8 @@ io.on('connection', sock => {
       finishPlay(room, sock.data.playerName, card);
     } else {
       s.hands[sock.data.playerName].push(card);
-      s.lastAction = { type: 'draw', player: sock.data.playerName, count: 1 };
+      s.unoCallNeeded = null;
+      setAction(s, { type: 'draw', player: sock.data.playerName, count: 1 });
       advance(s);
       broadcast(room);
       startTimer(room);
@@ -468,8 +485,10 @@ io.on('connection', sock => {
     hand.splice(cardIdx, 1);
     s.discard.push(card);
     discardExtras(s, card, sock.data.playerName);
-    s.lastAction = { type: 'jumpin', player: sock.data.playerName, card };
+    s.unoCallNeeded = null;
+    setAction(s, { type: 'jumpin', player: sock.data.playerName, card });
     if (s.hands[sock.data.playerName].length === 0) return endGame(room, sock.data.playerName);
+    if (s.hands[sock.data.playerName].length === 1) s.unoCallNeeded = sock.data.playerName;
 
     s.turn = s.players.indexOf(sock.data.playerName);
     applyCardEffect(room, sock.data.playerName, card);
@@ -491,10 +510,10 @@ io.on('connection', sock => {
 
     if (bluff) {
       deal(s, wild4Player, 4);
-      s.lastAction = { type: 'challenge', player: sock.data.playerName, result: 'caught' };
+      setAction(s, { type: 'challenge', player: sock.data.playerName, result: 'caught' });
     } else {
       deal(s, sock.data.playerName, 6);
-      s.lastAction = { type: 'challenge', player: sock.data.playerName, result: 'failed' };
+      setAction(s, { type: 'challenge', player: sock.data.playerName, result: 'failed' });
       advance(s);
     }
 
@@ -525,6 +544,34 @@ io.on('connection', sock => {
     if (other) {
       const os = io.sockets.sockets.get(other.sid);
       if (os) os.emit('reaction', { emoji, from: sock.data.playerName });
+    }
+  });
+
+  // ── UNO call / catch ──────────────────────────────────────────────────────
+  // A player at 1 card must call UNO. If they don't and the opponent catches
+  // them first, they draw 2 penalty cards.
+  sock.on('callUno', () => {
+    const room = rooms[sock.data.roomId];
+    if (!room?.state) return;
+    const s = room.state;
+    if (s.unoCallNeeded === sock.data.playerName) {
+      s.unoCallNeeded = null;
+      setAction(s, { type: 'uno', player: sock.data.playerName });
+      broadcast(room);
+    }
+  });
+
+  sock.on('catchUno', () => {
+    const room = rooms[sock.data.roomId];
+    if (!room?.state || room.state.winner) return;
+    const s = room.state;
+    const opp = s.players.find(p => p !== sock.data.playerName);
+    // You can only catch the opponent, and only while they still owe a call.
+    if (opp && s.unoCallNeeded === opp) {
+      deal(s, opp, 2);
+      s.unoCallNeeded = null;
+      setAction(s, { type: 'caught', player: sock.data.playerName, victim: opp });
+      broadcast(room); // does NOT consume the catcher's turn
     }
   });
 
